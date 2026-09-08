@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Applications (tenants)
+// ---------------------------------------------------------------------------
+
+enum ApplicationStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ProviderStrategy {
+  PRIORITY
+  CHEAPEST
+  WEIGHTED
+  AUTO
+}
+
+model Application {
+  id            String            @id @default(cuid())
+  name          String            @unique
+  slug          String            @unique
+  description   String?
+  status        ApplicationStatus @default(ACTIVE)
+  // ["*"] means all countries allowed; otherwise ISO codes, e.g. ["IR", "TR"]
+  allowedCountries String[]       @default(["*"])
+  // Optional per-application OTP overrides { length, ttlSeconds, maxAttempts, resendCooldownSeconds }
+  otpPolicy     Json?
+  // Optional per-application rate-limit overrides { ipPerMinute, appPerMinute, phonePer10Minutes, resendCooldownSeconds }
+  rateLimits    Json?
+  providerStrategy ProviderStrategy @default(AUTO)
+
+  credentials ApplicationCredential[]
+  otpRequests OtpRequest[]
+  usageEvents UsageEvent[]
+  quotas      Quota[]
+  auditLogs   AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+enum CredentialStatus {
+  ACTIVE
+  REVOKED
+}
+
+model ApplicationCredential {
+  id            String           @id @default(cuid())
+  applicationId String
+  application   Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  apiKey        String            @unique
+  // SHA-256 hash of the API secret — never stored in plaintext
+  secretHash    String
+  status        CredentialStatus  @default(ACTIVE)
+  lastUsedAt    DateTime?
+  createdAt     DateTime          @default(now())
+  revokedAt     DateTime?
+
+  @@index([applicationId, status])
+}
+
+// ---------------------------------------------------------------------------
+// SMS providers
+// ---------------------------------------------------------------------------
+
+enum ProviderStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ProviderHealthStatus {
+  HEALTHY
+  DEGRADED
+  DOWN
+  UNKNOWN
+}
+
+model SmsProvider {
+  id        String          @id @default(cuid())
+  name      String          @unique
+  // Adapter type, e.g. MOCK | GENERIC_HTTP | KAVENEGAR
+  type      String
+  status    ProviderStatus  @default(ACTIVE)
+  // Lower number = higher precedence
+  priority  Int             @default(100)
+  weight    Int             @default(1)
+  // Fallback price (USD per SMS) when no price history row applies
+  costPerSms Decimal         @default(0) @db.Decimal(12, 6)
+  // AES-256-GCM encrypted JSON credentials (api keys, tokens...)
+  credentialsEncrypted String?
+  // Adapter-specific config (sender, baseUrl, template, failure simulation...)
+  config    Json?
+  timeoutMs Int             @default(10000)
+  maxRetries Int            @default(0)
+  supportedCountries String[] @default(["*"])
+
+  // Health snapshot (live state lives in Redis)
+  healthStatus     ProviderHealthStatus @default(UNKNOWN)
+  lastSuccessAt    DateTime?
+  lastFailureAt    DateTime?
+  lastHealthCheckAt DateTime?
+  successCount     Int          @default(0)
+  failureCount     Int          @default(0)
+  avgResponseMs    Int          @default(0)
+  circuitOpenUntil DateTime?
+
+  prices      ProviderPrice[]
+  usageEvents UsageEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, priority])
+}
+
+// Price history: usage events always reference the price snapshot at send time
+model ProviderPrice {
+  id            String   @id @default(cuid())
+  providerId    String
+  provider      SmsProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  pricePerSms   Decimal  @db.Decimal(12, 6)
+  currency      String   @default("USD")
+  effectiveFrom DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([providerId, effectiveFrom])
+}
+
+// ---------------------------------------------------------------------------
+// OTP requests (metadata only — codes live exclusively in Redis, hashed)
+// ---------------------------------------------------------------------------
+
+enum OtpRequestStatus {
+  PENDING
+  SENT
+  VERIFIED
+  FAILED
+  EXPIRED
+}
+
+model OtpRequest {
+  id            String           @id @default(uuid())
+  applicationId String
+  application   Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  phone         String // E.164
+  purpose       String
+  providerId    String?
+  status        OtpRequestStatus @default(PENDING)
+  attempts      Int              @default(0)
+  ip            String?
+  expiresAt     DateTime
+  verifiedAt    DateTime?
+  createdAt     DateTime         @default(now())
+
+  usageEvents UsageEvent[]
+
+  @@index([applicationId, phone, createdAt])
+  @@index([applicationId, createdAt])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Usage metering & cost tracking
+// ---------------------------------------------------------------------------
+
+enum UsageStatus {
+  SUCCESS
+  FAILED
+  REJECTED
+  RATE_LIMITED
+  QUOTA_EXCEEDED
+}
+
+model UsageEvent {
+  id             String      @id @default(cuid())
+  applicationId  String
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  providerId     String?
+  provider       SmsProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  otpRequestId   String?
+  otpRequest     OtpRequest?  @relation(fields: [otpRequestId], references: [id], onDelete: SetNull)
+  phoneCountry   String
+  smsCount       Int         @default(1)
+  status         UsageStatus
+  // Price snapshot at send time — never recalculated retroactively
+  providerCost   Decimal     @default(0) @db.Decimal(12, 6)
+  latencyMs      Int?
+  error          String?
+  createdAt      DateTime    @default(now())
+
+  @@index([applicationId, createdAt])
+  @@index([providerId, createdAt])
+  @@index([status, createdAt])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Rate limits & quotas
+// ---------------------------------------------------------------------------
+
+enum RateLimitScope {
+  IP
+  APPLICATION
+  PHONE
+}
+
+model RateLimitConfig {
+  id             String          @id @default(cuid())
+  key            String          @unique // e.g. "ip_per_minute"
+  scope          RateLimitScope
+  limit          Int
+  windowSeconds  Int
+  enabled        Boolean         @default(true)
+  description    String?
+  updatedAt      DateTime        @updatedAt
+}
+
+enum QuotaType {
+  DAILY_SMS
+  MONTHLY_SMS
+  DAILY_COST_USD
+  MONTHLY_COST_USD
+}
+
+model Quota {
+  id            String    @id @default(cuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  type          QuotaType
+  limit         Decimal   @db.Decimal(14, 4)
+  enabled       Boolean   @default(true)
+
+  @@unique([applicationId, type])
+}
+
+// ---------------------------------------------------------------------------
+// Audit log (admin actions; never contains OTP codes or secrets)
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actor      String // e.g. "admin" or "system"
+  action     String // e.g. "provider.created"
+  resource   String
+  resourceId String?
+  ip         String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  applicationId String?
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([resource, resourceId])
+}
