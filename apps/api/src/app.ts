@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
+import fastifyStatic from "@fastify/static";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { buildConfig, parseConfig, type AppConfig } from "./config.js";
@@ -182,15 +186,48 @@ export async function buildApp(options: BuildAppOptions = {}) {
     return reply.send(await metrics.metrics());
   });
 
-  app.get("/", { schema: { tags: ["Health"], summary: "Gateway metadata" } }, async (_request, reply) => {
-    return reply.send({ name: "Central OTP & SMS Gateway", version: "1.0.0", docs: "/docs" });
+  // Serve the built admin panel (apps/admin/dist) under /admin when it is present
+  // in the image. Local dev keeps using the Vite dev server; this is the production path.
+  const adminDist = resolve(dirname(fileURLToPath(import.meta.url)), "../../admin/dist");
+  if (existsSync(adminDist)) {
+    await app.register(fastifyStatic, {
+      root: adminDist,
+      prefix: "/admin/",
+      wildcard: false,
+      index: false,
+    });
+    // SPA fallback: any /admin/* path that is not a real file serves index.html.
+    app.setNotFoundHandler((request, reply) => {
+      const url = request.url ?? "/";
+      if (url === "/admin" || url.startsWith("/admin/")) {
+        const assetPath = url.slice("/admin/".length).split("?")[0] ?? "";
+        const assetFile = resolve(adminDist, assetPath);
+        if (assetPath !== "" && assetFile.startsWith(adminDist) && existsSync(assetFile)) {
+          return reply.sendFile(assetPath);
+        }
+        return reply.type("text/html").sendFile("index.html");
+      }
+      return reply.code(404).send({
+        error: { code: ERROR_CODES.NOT_FOUND, message: "Route not found", request_id: request.correlationId },
+      });
+    });
+  }
+
+  app.get("/admin", { schema: { tags: ["Health"], summary: "Redirect to admin panel" } }, async (_request, reply) => {
+    return reply.redirect("/admin/");
   });
 
-  app.setNotFoundHandler((request, reply) => {
-    return reply.code(404).send({
-      error: { code: ERROR_CODES.NOT_FOUND, message: "Route not found", request_id: request.correlationId },
-    });
+  app.get("/", { schema: { tags: ["Health"], summary: "Gateway metadata" } }, async (_request, reply) => {
+    return reply.send({ name: "Central OTP & SMS Gateway", version: "1.0.0", docs: "/docs", ...(existsSync(adminDist) ? { admin: "/admin/" } : {}) });
   });
+
+  if (!existsSync(adminDist)) {
+    app.setNotFoundHandler((request, reply) => {
+      return reply.code(404).send({
+        error: { code: ERROR_CODES.NOT_FOUND, message: "Route not found", request_id: request.correlationId },
+      });
+    });
+  }
 
   app.setErrorHandler((error: any, request, reply) => {
     if (error instanceof AppError) {

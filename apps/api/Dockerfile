@@ -12,7 +12,8 @@ RUN npm install
 COPY apps/api/ apps/api/
 COPY packages/otp-client/ packages/otp-client/
 COPY apps/admin/ apps/admin/
-RUN npm run build --workspace apps/api
+# Build the admin panel too — its dist is served by the API under /admin.
+RUN npm run build --workspace apps/api && npm run build --workspace apps/admin
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
@@ -22,6 +23,8 @@ COPY --from=build /workspace/node_modules ./node_modules
 COPY --from=build /workspace/apps/api/package.json ./package.json
 COPY --from=build /workspace/apps/api/dist ./dist
 COPY --from=build /workspace/apps/api/prisma ./prisma
+# Admin panel (built SPA), served by the API under /admin.
+COPY --from=build /workspace/apps/admin/dist ./admin/dist
 
 EXPOSE 3000
 USER node
