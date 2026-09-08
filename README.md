@@ -215,6 +215,26 @@ Unit/security-focused tests use fakes and the mock provider; they do not send re
 
 ## Deployment and operations
 
+### Coolify / PaaS (single service, npm start)
+
+The root `npm start` runs `scripts/start-production.mjs`, which:
+
+1. Validates required env (`DATABASE_URL`, `REDIS_URL`, `MASTER_KEY`, `ADMIN_TOKEN`) and fails fast naming what is missing.
+2. Waits up to 60s for the database to accept connections (avoids boot-race crash loops).
+3. Runs `prisma migrate deploy` with retries.
+4. Launches the API (`node dist/server.js`) with signal forwarding.
+
+Required environment variables (set in Coolify → Environment or your secret manager):
+
+- `DATABASE_URL` — use the **service hostname**, e.g. `postgresql://user:pass@postgres:5432/otp_gateway?schema=public` (not localhost)
+- `REDIS_URL` — e.g. `redis://redis:6379`
+- `MASTER_KEY` — 32+ random chars (encrypts provider credentials; rotating it invalidates stored credentials)
+- `ADMIN_TOKEN` — 16+ random chars (admin API bearer)
+
+Build command: `npm run build` · Start command: `npm start` · Health check: `/health/ready`.
+
+### Docker Compose (VPS)
+
 For a VPS:
 
 1. Provision Docker, a domain, HTTPS termination/reverse proxy, PostgreSQL storage, and Redis persistence.
