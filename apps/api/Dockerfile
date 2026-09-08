@@ -5,12 +5,13 @@ COPY package*.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY packages/otp-client/package.json packages/otp-client/package.json
 COPY apps/admin/package.json apps/admin/package.json
+# prisma generate runs in postinstall — the schema must be present at install time.
+COPY apps/api/prisma/ apps/api/prisma/
 RUN npm install
 
 COPY apps/api/ apps/api/
 COPY packages/otp-client/ packages/otp-client/
 COPY apps/admin/ apps/admin/
-RUN npm run db:generate --workspace apps/api
 RUN npm run build --workspace apps/api
 
 FROM node:22-alpine AS runtime
