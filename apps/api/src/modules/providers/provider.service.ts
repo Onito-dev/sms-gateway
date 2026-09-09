@@ -1,7 +1,9 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { AppError } from "../../common/errors.js";
 import type { EncryptionService } from "../../infrastructure/encryption/encryption.js";
-import { getAdapter, listAdapterTypes } from "./provider.registry.js";
+import { getAdapter, listAdapterTypes, getParamSchema } from "./provider.registry.js";
+import { validateProviderParams, validateMergedConfig } from "./provider-params.js";
+import type { AdapterParamSchema } from "./provider.interface.js";
 import type { ProviderManager } from "./provider.manager.js";
 
 export interface ProviderInput {
@@ -105,8 +107,14 @@ export class ProviderService {
     return listAdapterTypes();
   }
 
+  /** Parameter schema per adapter type — drives structured admin forms. */
+  paramSchemas(): Record<string, AdapterParamSchema> {
+    return Object.fromEntries(listAdapterTypes().map((type) => [type, getParamSchema(type)]));
+  }
+
   async create(input: ProviderInput) {
     this.assertType(input.type);
+    validateProviderParams(input.type, input, "create");
     const credentialsEncrypted = input.credentials
       ? this.encryption.encryptJson(input.credentials)
       : null;
@@ -158,6 +166,14 @@ export class ProviderService {
     const existing = await this.prisma.smsProvider.findUnique({ where: { id } });
     if (!existing) throw AppError.notFound("Provider not found");
     if (input.type) this.assertType(input.type);
+    const effectiveType = input.type ?? existing.type;
+    if (input.credentials || input.config) {
+      validateProviderParams(effectiveType, { credentials: input.credentials, config: input.config }, "update");
+    }
+    if (input.config !== undefined) {
+      const merged = { ...((existing.config as Record<string, unknown> | null) ?? {}), ...(input.config ?? {}) };
+      validateMergedConfig(effectiveType, merged);
+    }
 
     const credentialsEncrypted = input.credentials === undefined
       ? undefined
@@ -172,7 +188,13 @@ export class ProviderService {
         ...(input.weight !== undefined ? { weight: input.weight } : {}),
         ...(input.costPerSms !== undefined ? { costPerSms: input.costPerSms } : {}),
         ...(credentialsEncrypted !== undefined ? { credentialsEncrypted } : {}),
-        ...(input.config !== undefined ? { config: input.config ? (input.config as Prisma.InputJsonValue) : { set: null } } : {}),
+        ...(input.config !== undefined
+          ? {
+              config: input.config
+                ? ({ ...((existing.config as Record<string, unknown> | null) ?? {}), ...input.config } as Prisma.InputJsonValue)
+                : { set: null },
+            }
+          : {}),
         ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
         ...(input.maxRetries !== undefined ? { maxRetries: input.maxRetries } : {}),
         ...(input.supportedCountries !== undefined ? { supportedCountries: input.supportedCountries.map((country) => country === "*" ? "*" : country.toUpperCase()) } : {}),

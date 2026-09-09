@@ -49,3 +49,38 @@ export interface AdapterContext {
 }
 
 export type AdapterFactory = (ctx: AdapterContext) => SmsProviderAdapter;
+
+/**
+ * Declarative description of one adapter parameter. Each SMS company has a
+ * different structure — the adapter code owns the structure, while these
+ * descriptors make every parameter (api key, template id, …) editable and
+ * storable per provider row, with validation before anything is saved.
+ */
+export interface ProviderParamField {
+  /** Key inside credentials (group="credentials") or config (group="config"). */
+  name: string;
+  group: "credentials" | "config";
+  kind: "string" | "number" | "boolean" | "select";
+  label: string;
+  /** Required before a provider of this type can be saved/used. */
+  required?: boolean;
+  /** Secrets are write-only: never echoed back by the admin API. */
+  secret?: boolean;
+  /** Applied by the adapter when the key is absent (never injected into DB). */
+  default?: string | number | boolean;
+  /** Allowed values for kind="select". */
+  options?: string[];
+  min?: number;
+  max?: number;
+  integer?: boolean;
+  /** Regex source for kind="string" values. */
+  pattern?: string;
+  minLength?: number;
+  maxLength?: number;
+  placeholder?: string;
+  description?: string;
+}
+
+export interface AdapterParamSchema {
+  fields: ProviderParamField[];
+}

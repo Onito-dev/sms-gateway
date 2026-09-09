@@ -156,20 +156,22 @@ Built-in adapters:
 - `MOCK`: local development and failover tests; supports `config.failNext` and `config.failRate`.
 - `GENERIC_HTTP`: JSON HTTP endpoint using encrypted `apiKey` or `apiToken` credentials and configurable URL/sender.
 - `KAVENEGAR`: Kavenegar Verify/Lookup adapter using an approved template.
-- `SMSIR`: [sms.ir](https://sms.ir) VERIFY send (`POST https://api.sms.ir/v1/send/verify`) using an approved template. Credentials: `apiKey`. Config: `templateId` (required, from the sms.ir panel), `codeParameter` (template parameter name, default `Code`), `mobileWithCountryCode` (send `989121234567` instead of `9121234567`). Success requires HTTP 2xx **and** body `status === 1`.
+- `SMSIR`: [sms.ir](https://sms.ir) VERIFY send (`POST https://api.sms.ir/v1/send/verify`) using an approved template. Credentials: `apiKey`. Config: `templateId` (required, from the sms.ir panel), `codeParameter` (template parameter name, default `Code`), `mobileWithCountryCode` (send `989121234567` instead of `9121234567`), `baseUrl` (override for proxies/API mocks). Success requires HTTP 2xx **and** body `status === 1`.
+
+Each adapter declares its parameters as a schema (`ProviderParamField[]`). The admin panel renders these as structured per-type form fields — no raw JSON — and the API validates credentials/config against the schema on create/update: required fields enforced, unknown/typo'd keys rejected (`Unknown config parameter ...`), values type-checked. Secrets are write-only (never echoed back). Partial config updates are merged with the stored config, so editing one field cannot wipe others.
 
 To add a provider:
 
 1. Implement `SmsProviderAdapter` in `apps/api/src/modules/providers/adapters/`.
 2. Return `retryable: true` only when another attempt is safe according to the provider’s delivery semantics.
-3. Register the factory in `provider.registry.ts`.
-4. Create the provider through the admin API or panel.
+3. Declare its editable parameters as `ProviderParamField[]` and register both in `provider.registry.ts` (`registerAdapter(type, factory, params)`).
+4. Create the provider through the admin API or panel — the panel renders its parameter form automatically.
 
 Provider selection supports `AUTO`, `PRIORITY`, `CHEAPEST`, and `WEIGHTED`. `MAX_PROVIDER_FAILOVER` controls the number of additional candidates. Circuit state is held in Redis and health snapshots are mirrored to PostgreSQL.
 
 ## Admin panel and API
 
-Open `http://localhost:8080` and enter `ADMIN_TOKEN`. The panel includes dashboard, applications (API key management: view, add extra keys, revoke, rotate), credential rotation, providers (including editing credentials and template config such as the SMSIR `templateId`), test SMS, usage/cost reports, audit logs, rate limits, and system health.
+Open `http://localhost:8080` and enter `ADMIN_TOKEN`. The panel includes dashboard, applications (API key management: view, add extra keys, revoke, rotate), credential rotation, providers (structured per-adapter parameter forms with save-time validation, secret write-only fields, real test-SMS errors shown inline), usage/cost reports, audit logs, rate limits, and system health.
 
 Admin API uses:
 

@@ -1,6 +1,7 @@
 import type {
   AdapterContext,
   AdapterFactory,
+  ProviderParamField,
   SendSmsParams,
   SendSmsResult,
   SmsProviderAdapter,
@@ -84,5 +85,49 @@ export class GenericHttpProvider implements SmsProviderAdapter {
     }
   }
 }
+
+export const GENERIC_HTTP_PARAMS: ProviderParamField[] = [
+  {
+    name: "url",
+    group: "config",
+    kind: "string",
+    label: "Endpoint URL",
+    required: true,
+    pattern: "^https?://",
+    description: "JSON endpoint that accepts { phone, message, sender }.",
+  },
+  {
+    name: "method",
+    group: "config",
+    kind: "select",
+    label: "HTTP method",
+    default: "POST",
+    options: ["POST", "PUT"],
+  },
+  {
+    name: "sender",
+    group: "config",
+    kind: "string",
+    label: "Sender name",
+    maxLength: 32,
+    description: "Optional sender id forwarded to the provider.",
+  },
+  {
+    name: "apiKey",
+    group: "credentials",
+    kind: "string",
+    label: "API Key",
+    secret: true,
+    description: "Sent as the X-API-Key header (optional).",
+  },
+  {
+    name: "apiToken",
+    group: "credentials",
+    kind: "string",
+    label: "Bearer token",
+    secret: true,
+    description: "Sent as the Authorization: Bearer header (optional).",
+  },
+];
 
 export const genericHttpAdapterFactory: AdapterFactory = (ctx) => new GenericHttpProvider(ctx);

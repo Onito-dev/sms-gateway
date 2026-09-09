@@ -1,6 +1,7 @@
 import type {
   AdapterContext,
   AdapterFactory,
+  ProviderParamField,
   SendSmsParams,
   SendSmsResult,
   SmsProviderAdapter,
@@ -42,5 +43,29 @@ export class MockProvider implements SmsProviderAdapter {
     return { status: "HEALTHY" as const, detail: "mock provider" };
   }
 }
+
+export const MOCK_PARAMS: ProviderParamField[] = [
+  {
+    name: "failNext",
+    group: "config",
+    kind: "number",
+    label: "Fail next N sends",
+    integer: true,
+    min: 0,
+    max: 1000,
+    default: 0,
+    description: "Testing helper: simulate transient failures for failover checks.",
+  },
+  {
+    name: "failRate",
+    group: "config",
+    kind: "number",
+    label: "Random failure rate",
+    min: 0,
+    max: 1,
+    default: 0,
+    description: "Probability (0–1) that any given send fails.",
+  },
+];
 
 export const mockAdapterFactory: AdapterFactory = (ctx) => new MockProvider(ctx);

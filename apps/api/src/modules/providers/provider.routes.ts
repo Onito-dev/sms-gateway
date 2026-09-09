@@ -41,7 +41,7 @@ export function registerProviderRoutes(
   const preHandler = deps.adminAuth;
 
   app.get("/api/v1/admin/providers", { preHandler, schema: { tags: ["Admin Providers"], summary: "List SMS providers" } }, async (_request, reply) => {
-    return reply.send({ items: await deps.providerService.list(), supportedTypes: deps.providerService.supportedTypes() });
+    return reply.send({ items: await deps.providerService.list(), supportedTypes: deps.providerService.supportedTypes(), paramSchemas: deps.providerService.paramSchemas() });
   });
 
   app.post("/api/v1/admin/providers", {

@@ -1,6 +1,7 @@
 import type {
   AdapterContext,
   AdapterFactory,
+  ProviderParamField,
   SendSmsParams,
   SendSmsResult,
   SmsProviderAdapter,
@@ -77,5 +78,26 @@ export class KavenegarProvider implements SmsProviderAdapter {
     return match?.[1] ?? message.slice(0, 20);
   }
 }
+
+export const KAVENEGAR_PARAMS: ProviderParamField[] = [
+  {
+    name: "apiKey",
+    group: "credentials",
+    kind: "string",
+    label: "API Key",
+    required: true,
+    secret: true,
+    minLength: 8,
+    description: "Kavenegar account API key used in the request path.",
+  },
+  {
+    name: "template",
+    group: "config",
+    kind: "string",
+    label: "Verify template name",
+    required: true,
+    description: "Name of the approved Verify/Lookup template from the Kavenegar panel.",
+  },
+];
 
 export const kavenegarAdapterFactory: AdapterFactory = (ctx) => new KavenegarProvider(ctx);

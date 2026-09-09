@@ -38,6 +38,29 @@ export interface Application {
   _count?: { usageEvents: number; otpRequests: number };
 }
 
+export interface ProviderParamField {
+  name: string;
+  group: "credentials" | "config";
+  kind: "string" | "number" | "boolean" | "select";
+  label: string;
+  required?: boolean;
+  secret?: boolean;
+  default?: string | number | boolean;
+  options?: string[];
+  min?: number;
+  max?: number;
+  integer?: boolean;
+  pattern?: string;
+  minLength?: number;
+  maxLength?: number;
+  placeholder?: string;
+  description?: string;
+}
+
+export interface ProviderParamSchema {
+  fields: ProviderParamField[];
+}
+
 export interface Provider {
   id: string;
   name: string;
@@ -159,6 +182,11 @@ export class AdminApi {
   async providers(token: string): Promise<Provider[]> {
     const result = await this.request<{ items: Provider[]; supportedTypes: string[] }>("/api/v1/admin/providers", token);
     return result.items;
+  }
+
+  async providerMeta(token: string): Promise<{ supportedTypes: string[]; paramSchemas: Record<string, ProviderParamSchema> }> {
+    const result = await this.request<{ supportedTypes: string[]; paramSchemas: Record<string, ProviderParamSchema> }>("/api/v1/admin/providers", token);
+    return { supportedTypes: result.supportedTypes ?? [], paramSchemas: result.paramSchemas ?? {} };
   }
 
   createProvider(token: string, body: unknown) {

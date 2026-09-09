@@ -1,6 +1,7 @@
 import type {
   AdapterContext,
   AdapterFactory,
+  ProviderParamField,
   SendSmsParams,
   SendSmsResult,
   SmsProviderAdapter,
@@ -29,6 +30,11 @@ export class SmsIrProvider implements SmsProviderAdapter {
   readonly type = "SMSIR";
   private static readonly BASE = "https://api.sms.ir/v1";
 
+  private get baseUrl(): string {
+    const url = this.ctx.config.baseUrl;
+    return typeof url === "string" && url.startsWith("http") ? url.replace(/\/$/, "") : SmsIrProvider.BASE;
+  }
+
   constructor(private readonly ctx: AdapterContext) {}
 
   async sendSms(params: SendSmsParams): Promise<SendSmsResult> {
@@ -51,7 +57,7 @@ export class SmsIrProvider implements SmsProviderAdapter {
     const timer = setTimeout(() => controller.abort(), this.ctx.timeoutMs);
 
     try {
-      const response = await fetch(`${SmsIrProvider.BASE}/send/verify`, {
+      const response = await fetch(`${this.baseUrl}/send/verify`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -124,5 +130,59 @@ export class SmsIrProvider implements SmsProviderAdapter {
     return match?.[1] ?? message.slice(0, 25);
   }
 }
+
+/**
+ * Editable parameters for the SMSIR adapter — rendered as structured form
+ * fields in the admin panel, validated on save, stored per provider row
+ * (credentials encrypted, config as JSON).
+ */
+export const SMSIR_PARAMS: ProviderParamField[] = [
+  {
+    name: "apiKey",
+    group: "credentials",
+    kind: "string",
+    label: "API Key",
+    required: true,
+    secret: true,
+    minLength: 8,
+    description: "From the sms.ir developer panel (x-api-key).",
+  },
+  {
+    name: "templateId",
+    group: "config",
+    kind: "number",
+    label: "Template ID",
+    required: true,
+    integer: true,
+    min: 1,
+    description: "Numeric ID of the approved VERIFY template from the sms.ir panel.",
+  },
+  {
+    name: "codeParameter",
+    group: "config",
+    kind: "string",
+    label: "Code parameter name",
+    default: "Code",
+    pattern: "^[A-Za-z0-9_]{1,50}$",
+    description: "Parameter name defined inside the sms.ir template (e.g. Code or OTP).",
+  },
+  {
+    name: "mobileWithCountryCode",
+    group: "config",
+    kind: "boolean",
+    label: "Send mobile with country code",
+    default: false,
+    description: "Send 989121234567 instead of 9121234567.",
+  },
+  {
+    name: "baseUrl",
+    group: "config",
+    kind: "string",
+    label: "API base URL",
+    default: "https://api.sms.ir/v1",
+    pattern: "^https?://",
+    description: "Override only for proxies or API mocks.",
+  },
+];
 
 export const smsIrAdapterFactory: AdapterFactory = (ctx) => new SmsIrProvider(ctx);

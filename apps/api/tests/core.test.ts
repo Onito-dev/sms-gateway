@@ -7,7 +7,9 @@ import { QuotaService } from "../src/modules/rate-limit/quota.service.js";
 import { IdempotencyService } from "../src/modules/otp/idempotency.service.js";
 import { OtpService } from "../src/modules/otp/otp.service.js";
 import { MockProvider } from "../src/modules/providers/adapters/mock.provider.js";
-import { SmsIrProvider } from "../src/modules/providers/adapters/smsir.provider.js";
+import { SmsIrProvider, SMSIR_PARAMS } from "../src/modules/providers/adapters/smsir.provider.js";
+import { validateProviderParams, validateMergedConfig } from "../src/modules/providers/provider-params.js";
+import { getParamSchema, listAdapterTypes } from "../src/modules/providers/provider.registry.js";
 import type { KeyValueStore } from "../src/infrastructure/redis/store.js";
 import type { AppContext, OtpRepository } from "../src/modules/otp/otp.types.js";
 import { ProviderManager, type GatewaySendOutcome } from "../src/modules/providers/provider.manager.js";
@@ -351,5 +353,59 @@ describe("sms.ir VERIFY adapter", () => {
     const connError = Object.assign(new Error("refused"), { code: "ECONNREFUSED" });
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(connError));
     await expect(makeProvider().sendSms({ phone: "+989121234567", message: "Code 123456" })).resolves.toMatchObject({ ok: false, retryable: true, kind: "CONNECTION" });
+  });
+});
+
+describe("provider parameter schemas & validation", () => {
+  it("declares a complete sms.ir parameter schema", () => {
+    const names = SMSIR_PARAMS.map((f) => `${f.group}.${f.name}`).sort();
+    expect(names).toEqual(["config.baseUrl", "config.codeParameter", "config.mobileWithCountryCode", "config.templateId", "credentials.apiKey"]);
+    const apiKey = SMSIR_PARAMS.find((f) => f.name === "apiKey");
+    const templateId = SMSIR_PARAMS.find((f) => f.name === "templateId");
+    expect(apiKey).toMatchObject({ required: true, secret: true, group: "credentials" });
+    expect(templateId).toMatchObject({ required: true, kind: "number", integer: true, group: "config" });
+  });
+
+  it("exposes schemas for every registered adapter type", () => {
+    for (const type of listAdapterTypes()) {
+      expect(Array.isArray(getParamSchema(type).fields)).toBe(true);
+    }
+    expect(getParamSchema("SMSIR").fields.length).toBeGreaterThan(0);
+    expect(getParamSchema("NOPE").fields).toEqual([]);
+  });
+
+  it("accepts valid sms.ir params and rejects missing/unknown keys", () => {
+    expect(() => validateProviderParams("SMSIR", { credentials: { apiKey: "abcd1234" }, config: { templateId: 123456 } }, "create")).not.toThrow();
+
+    expect(() => validateProviderParams("SMSIR", { credentials: { apiKey: "abcd1234" } }, "create")).toThrow(/templateId/);
+    expect(() => validateProviderParams("SMSIR", { credentials: {}, config: { templateId: 1 } }, "create")).toThrow(/apiKey/);
+    expect(() => validateProviderParams("SMSIR", { credentials: { apiKey: "abcd1234" }, config: { templateId: 1, templatId: 2 } }, "create")).toThrow(/Unknown config parameter 'templatId'/);
+    expect(() => validateProviderParams("SMSIR", { credentials: { apiKey: "abcd1234", key: "x" }, config: { templateId: 1 } }, "create")).toThrow(/Unknown credential parameter 'key'/);
+    expect(() => validateProviderParams("SMSIR", { credentials: { apiKey: "short" }, config: { templateId: 1 } }, "create")).toThrow(/at least 8/);
+    expect(() => validateProviderParams("SMSIR", { credentials: { apiKey: "abcd1234" }, config: { templateId: "12.5" } }, "create")).toThrow(/must be an integer/);
+  });
+
+  it("update mode tolerates omitted fields but validates provided ones", () => {
+    expect(() => validateProviderParams("SMSIR", { config: { templateId: 42 } }, "update")).not.toThrow();
+    expect(() => validateProviderParams("SMSIR", { config: { templateId: "x" } }, "update")).toThrow(/must be a number/);
+  });
+
+  it("merged-config validation enforces required fields after an edit", () => {
+    expect(() => validateMergedConfig("SMSIR", { templateId: 7, codeParameter: "OTP" })).not.toThrow();
+    expect(() => validateMergedConfig("SMSIR", { codeParameter: "OTP" })).toThrow(/templateId/);
+    // Legacy rows may carry undeclared keys — merged validation tolerates them.
+    expect(() => validateMergedConfig("SMSIR", { templateId: 7, legacyKey: "keep" })).not.toThrow();
+  });
+
+  it("SMSIR adapter honors the declared baseUrl override", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 1, data: { messageId: 5 } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new SmsIrProvider({
+      providerId: "s", name: "s", timeoutMs: 1000,
+      credentials: { apiKey: "k" },
+      config: { templateId: 1, baseUrl: "https://proxy.example/v1/" },
+    });
+    await provider.sendSms({ phone: "+989121234567", message: "Code 123456" });
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://proxy.example/v1/send/verify");
   });
 });

@@ -22,7 +22,7 @@ This repository contains a modular-monolith OTP/SMS gateway. It is **not** an au
 
 - `src/modules/otp/`: OTP generation, HMAC hashing, Redis TTL storage, attempt limits, single-use verification, resend cooldown, request/verify routes.
 - `src/modules/applications/`: multi-tenant application CRUD, API key/secret authentication, credential rotation/revocation, extra-key creation (`POST /:id/credentials`), quotas.
-- `src/modules/providers/`: provider interface, MOCK/GENERIC_HTTP/KAVENEGAR/SMSIR adapters, provider registry, selection strategies, failover, pricing snapshots, health and circuit breaker.
+- `src/modules/providers/`: provider interface (with per-adapter `ProviderParamField` schemas), MOCK/GENERIC_HTTP/KAVENEGAR/SMSIR adapters, provider registry + param-schema lookup, save-time credential/config validation (`provider-params.ts`), selection strategies, failover, pricing snapshots, health and circuit breaker.
 - `src/modules/rate-limit/`: Redis-backed IP/application/phone rate limiting and quota counters.
 - `src/modules/usage/`: immutable usage events, provider cost snapshots, reports and dashboard aggregates.
 - `src/modules/admin/`: bearer-token admin authentication and audit logging/routes.
