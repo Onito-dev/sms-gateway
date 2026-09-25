@@ -72,6 +72,20 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.decorateRequest("correlationId", "");
   app.addHook("onRequest", async (request) => {
     request.correlationId = request.id;
+
+    // Clients sometimes declare `Content-Type: application/json` on requests
+    // that carry no body (the admin panel did for rotate-credentials, key
+    // creation/revocation and provider force-disable). Fastify's JSON parser
+    // rejects such an empty payload with FST_ERR_CTP_EMPTY_JSON_BODY before
+    // the route handler — and even before authentication — can run, so drop
+    // the header whenever there is definitively no body to parse.
+    const contentLength = request.headers["content-length"];
+    const hasBody =
+      (contentLength !== undefined && contentLength !== "0") ||
+      request.headers["transfer-encoding"] !== undefined;
+    if (!hasBody && request.headers["content-type"] !== undefined) {
+      delete request.headers["content-type"];
+    }
   });
 
   await app.register(cors, {
@@ -247,6 +261,18 @@ export async function buildApp(options: BuildAppOptions = {}) {
           message: "Request validation failed",
           request_id: request.correlationId,
           details: error.validation,
+        },
+      });
+    }
+    // Fastify's own client errors (empty or malformed JSON body, payload too
+    // large, unsupported media type, ...) already carry a 4xx statusCode.
+    // Report them as such instead of masking every one of them as a 500.
+    if (typeof error?.statusCode === "number" && error.statusCode >= 400 && error.statusCode < 500) {
+      return reply.code(error.statusCode).send({
+        error: {
+          code: typeof error?.code === "string" ? error.code : ERROR_CODES.VALIDATION_ERROR,
+          message: typeof error?.message === "string" ? error.message : "Bad request",
+          request_id: request.correlationId,
         },
       });
     }

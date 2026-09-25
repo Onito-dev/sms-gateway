@@ -234,13 +234,18 @@ export class AdminApi {
   }
 
   private async request<T = unknown>(path: string, token: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+    // Only declare a JSON content type when a body is actually sent: Fastify
+    // rejects `content-type: application/json` on an empty payload
+    // (FST_ERR_CTP_EMPTY_JSON_BODY) before the route handler runs, which broke
+    // every bodyless POST here (rotate, add key, revoke, force-disable).
+    const headers: Record<string, string> = {
+      accept: "application/json",
+      authorization: `Bearer ${token}`,
+    };
+    if (options.body !== undefined) headers["content-type"] = "application/json";
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: options.method ?? "GET",
-      headers: {
-        accept: "application/json",
-        "content-type": "application/json",
-        authorization: `Bearer ${token}`,
-      },
+      headers,
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
     });
     const data = await response.json().catch(() => null) as T | ApiErrorBody | null;

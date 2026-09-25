@@ -80,7 +80,14 @@ export function registerApplicationRoutes(    app: FastifyInstance,
   app.post("/api/v1/admin/applications/:id/rotate-credentials", { preHandler, schema: { tags: ["Admin Applications"], summary: "Rotate application credentials" } }, async (request, reply) => {
     const id = idParam((request.params as { id?: unknown }).id);
     const credentials = await deps.applicationService.rotateCredentials(id);
-    await deps.audit.record({ actor: "admin", action: "application.credentials_rotated", resource: "application", resourceId: id, ip: request.ip });
+    // The rotation is already committed and the previous keys are revoked, so a
+    // failed audit write must never hide the new secret from the caller: log it
+    // loudly and still return the credentials.
+    await deps.audit
+      .record({ actor: "admin", action: "application.credentials_rotated", resource: "application", resourceId: id, applicationId: id, ip: request.ip })
+      .catch((err: unknown) => {
+        request.log.error({ err, applicationId: id }, "Failed to record credential rotation in the audit log");
+      });
     return reply.send(credentials);
   });
 
