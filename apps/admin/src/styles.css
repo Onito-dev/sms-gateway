@@ -112,6 +112,8 @@ label { display: block; color: #8998b1; font-size: 11px; }
 .health-pill i.bad { background: #ff6d8e; box-shadow: 0 0 10px #ff6d8e; }
 .health-pill strong { margin-left: auto; color: #55d8b1; font-size: 10px; }
 .health-pill i.bad + span + strong { color: #ff7999; }
+.panel-body { display: grid; gap: 14px; padding: 22px 23px; }
+.panel-body .actions { display: flex; gap: 11px; }
 .setting-row { display: flex; align-items: center; gap: 14px; padding: 15px 22px; border-bottom: 1px solid #17263c; }
 .setting-row:last-child { border-bottom: 0; }
 .setting-row > span { flex: 1; }

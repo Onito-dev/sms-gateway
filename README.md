@@ -171,7 +171,11 @@ Provider selection supports `AUTO`, `PRIORITY`, `CHEAPEST`, and `WEIGHTED`. `MAX
 
 ## Admin panel and API
 
-Open `http://localhost:8080` and enter `ADMIN_TOKEN`. The panel includes dashboard, applications (API key management: view, add extra keys, revoke, rotate), credential rotation, providers (structured per-adapter parameter forms with save-time validation, secret write-only fields, real test-SMS errors shown inline), usage/cost reports, audit logs, rate limits, and system health.
+Open `http://localhost:8080` and enter `ADMIN_TOKEN`. The panel includes dashboard, applications (API key management: view, add extra keys, revoke, rotate), credential rotation, providers (structured per-adapter parameter forms with save-time validation, secret write-only fields, real test-SMS errors shown inline), usage/cost reports, audit logs, rate limits, system health, and editable CORS allowed-origins.
+
+### CORS allowed websites (browser clients)
+
+The list of websites allowed to call the gateway API from a browser is editable in **Settings → Allowed websites (CORS)**, one origin per line (`https://app.example.com`, optionally with port). Enter `*` alone to allow every origin. The list is stored in the database (setting `cors_origins`) and takes precedence over the `CORS_ORIGINS` environment variable, which only seeds the initial value and acts as a fallback. Requests from origins not on the list receive no CORS headers (browsers block them); edits take effect within seconds, no restart needed.
 
 Admin API uses:
 
@@ -192,6 +196,8 @@ POST   /api/v1/admin/providers/:id/test
 GET    /api/v1/admin/usage
 GET    /api/v1/admin/reports/summary
 GET    /api/v1/admin/audit-logs
+GET    /api/v1/admin/settings/cors-origins
+PATCH  /api/v1/admin/settings/cors-origins
 ```
 
 ## Security model

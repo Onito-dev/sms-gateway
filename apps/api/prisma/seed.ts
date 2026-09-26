@@ -11,6 +11,18 @@ const rateLimits = [
 ];
 
 async function main(): Promise<void> {
+  // Persist the env-provided CORS origins as the initial panel-editable value.
+  // An empty list means "not configured yet" and keeps the env origins active.
+  const corsOrigins = (process.env.CORS_ORIGINS ?? "http://localhost:5173")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  await prisma.setting.upsert({
+    where: { key: "cors_origins" },
+    update: {},
+    create: { key: "cors_origins", value: { allowedOrigins: corsOrigins } },
+  });
+
   for (const config of rateLimits) {
     await prisma.rateLimitConfig.upsert({
       where: { key: config.key },

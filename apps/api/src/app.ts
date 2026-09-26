@@ -16,6 +16,7 @@ import { createRedisClient } from "./infrastructure/redis/redis.client.js";
 import { RedisStore } from "./infrastructure/redis/redis.store.js";
 import { EncryptionService } from "./infrastructure/encryption/encryption.js";
 import { ApplicationService } from "./modules/applications/application.service.js";
+import { SettingsService, type CorsOriginCheck } from "./modules/settings/settings.service.js";
 import { AuditService } from "./modules/admin/audit.service.js";
 import { createAdminAuthenticator } from "./modules/admin/admin.auth.js";
 import { ProviderManager, setProviderFailureMetric } from "./modules/providers/provider.manager.js";
@@ -32,6 +33,7 @@ import { registerApplicationRoutes } from "./modules/applications/application.ro
 import { registerProviderRoutes } from "./modules/providers/provider.routes.js";
 import { registerUsageRoutes } from "./modules/usage/usage.routes.js";
 import { registerAdminRoutes } from "./modules/admin/admin.routes.js";
+import { registerSettingsRoutes } from "./modules/settings/settings.routes.js";
 import { registerHealthRoutes } from "./modules/health/health.routes.js";
 
 export interface GatewayContainer {
@@ -44,6 +46,7 @@ export interface GatewayContainer {
   providerService: ProviderService;
   usageService: UsageService;
   auditService: AuditService;
+  settingsService: SettingsService;
   otpService: OtpService;
   metrics: MetricsService;
 }
@@ -89,7 +92,19 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
 
   await app.register(cors, {
-    origin: config.corsOrigins.length === 1 && config.corsOrigins[0] === "*" ? true : config.corsOrigins,
+    origin: (requestOrigin, callback) => {
+      void resolveCorsOriginCheck().then((check) => {
+        if (check.kind === "allow_all") {
+          // Reflect any origin (equivalent to the previous `*` behaviour).
+          callback(null, true);
+          return;
+        }
+        const requestOriginNormalized = requestOrigin ? normalizeOrigin(requestOrigin) : "";
+        // False (not an error) so non-allowed origins get no CORS headers and
+        // the browser blocks the response, without turning the request into a 500.
+        callback(null, requestOriginNormalized !== "" && check.allowedOrigins.includes(requestOriginNormalized));
+      }).catch((error) => callback(error as Error, false));
+    },
     credentials: false,
   });
   await app.register(helmet, { global: true });
@@ -130,6 +145,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const encryption = new EncryptionService(env.MASTER_KEY);
   const metrics = new MetricsService();
   const applicationService = new ApplicationService(prisma);
+  const settingsService = new SettingsService(prisma);
   const usageService = new UsageService(prisma);
   const auditService = new AuditService(prisma);
   const providerManager = new ProviderManager(
@@ -173,6 +189,43 @@ export async function buildApp(options: BuildAppOptions = {}) {
   otpService.setDefaultCountry(config.defaultCountry);
   const adminAuth = createAdminAuthenticator(env.ADMIN_TOKEN);
 
+  // ---------------------------------------------------------------------------
+  // Dynamic CORS: the allowed-origins list is editable from the admin panel and
+  // stored in PostgreSQL (Setting: cors_origins). The env value is only the
+  // bootstrap/seed default and the fallback when the database is unreachable.
+  // ---------------------------------------------------------------------------
+  const envAllowAllOrigins = config.corsOrigins.length === 1 && config.corsOrigins[0] === "*";
+  const normalizeOrigin = (origin: string): string => {
+    const lower = origin.toLowerCase();
+    return lower.length > 1 && lower.endsWith("/") ? lower.slice(0, -1) : lower;
+  };
+  const envCorsOrigins = config.corsOrigins.map(normalizeOrigin);
+  // Short-lived cache so OTP traffic does not hit the DB on every request,
+  // while panel edits still take effect immediately.
+  const CORS_SETTINGS_TTL_MS = 5_000;
+  let corsSettingCache: { value: CorsOriginCheck; expiresAt: number } | null = null;
+  const resolveCorsOriginCheck = async (): Promise<CorsOriginCheck> => {
+    const now = Date.now();
+    if (corsSettingCache && corsSettingCache.expiresAt > now) return corsSettingCache.value;
+    try {
+      const value = await settingsService.getCorsOriginCheck();
+      // An unset setting means "not configured yet" — keep the env origins as
+      // the effective list so a fresh deployment is not locked open or shut.
+      const effective: CorsOriginCheck = value.kind === "list" && value.allowedOrigins.length === 0 && !envAllowAllOrigins
+        ? { kind: "list", allowedOrigins: envCorsOrigins }
+        : value;
+      corsSettingCache = { value: effective, expiresAt: now + CORS_SETTINGS_TTL_MS };
+      return effective;
+    } catch (error) {
+      // Database hiccup: serve the last known list (or the env list) instead of
+      // failing every cross-origin request.
+      const fallback: CorsOriginCheck = corsSettingCache?.value ??
+        (envAllowAllOrigins ? { kind: "allow_all" } : { kind: "list", allowedOrigins: envCorsOrigins });
+      logger.warn({ err: error }, "Failed to load CORS origins setting; using fallback list");
+      return fallback;
+    }
+  };
+
   const container: GatewayContainer = {
     config,
     logger,
@@ -183,6 +236,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     providerService,
     usageService,
     auditService,
+    settingsService,
     otpService,
     metrics,
   };
@@ -194,6 +248,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   registerProviderRoutes(routeApp, { providerService, audit: auditService, adminAuth });
   registerUsageRoutes(routeApp, { usage: usageService, audit: auditService, adminAuth });
   registerAdminRoutes(routeApp, { prisma, redis, providers: providerManager, usage: usageService, audit: auditService, adminAuth });
+  registerSettingsRoutes(routeApp, { settings: settingsService, audit: auditService, adminAuth });
 
   app.get("/metrics", { schema: { tags: ["Health"], summary: "Prometheus metrics" } }, async (_request, reply) => {
     reply.header("content-type", metrics.registry.contentType);

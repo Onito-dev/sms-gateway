@@ -143,6 +143,11 @@ export interface SystemHealth {
   providerHealth: Array<{ providerId: string; name: string; health: { status: string; circuitOpen: boolean; consecutiveFailures: number } }>;
 }
 
+export interface CorsOriginsSetting {
+  allowedOrigins: string[];
+  configured: boolean;
+}
+
 export class AdminApi {
   constructor(private readonly baseUrl = "") {}
 
@@ -231,6 +236,14 @@ export class AdminApi {
 
   systemHealth(token: string) {
     return this.request<SystemHealth>("/api/v1/admin/system/health", token);
+  }
+
+  async corsOrigins(token: string): Promise<CorsOriginsSetting> {
+    return this.request<CorsOriginsSetting>("/api/v1/admin/settings/cors-origins", token);
+  }
+
+  updateCorsOrigins(token: string, allowedOrigins: string[]) {
+    return this.request<CorsOriginsSetting>("/api/v1/admin/settings/cors-origins", token, { method: "PATCH", body: { allowedOrigins } });
   }
 
   private async request<T = unknown>(path: string, token: string, options: { method?: string; body?: unknown } = {}): Promise<T> {

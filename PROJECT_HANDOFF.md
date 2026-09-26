@@ -26,6 +26,7 @@ This repository contains a modular-monolith OTP/SMS gateway. It is **not** an au
 - `src/modules/rate-limit/`: Redis-backed IP/application/phone rate limiting and quota counters.
 - `src/modules/usage/`: immutable usage events, provider cost snapshots, reports and dashboard aggregates.
 - `src/modules/admin/`: bearer-token admin authentication and audit logging/routes.
+- `src/modules/settings/`: runtime-editable settings stored in PostgreSQL (`Setting` key/value table); currently `cors_origins` — the CORS allowed-origins list editable from the admin panel (Settings → Allowed websites). `app.ts` registers `@fastify/cors` with a dynamic origin resolver: DB setting first, env `CORS_ORIGINS` as seed/fallback (also used when the DB is unreachable), 5-second in-memory cache, exact origin match (scheme + host + port, trailing slash tolerated, case-insensitive), `*` reflects all origins, non-allowed origins get no CORS headers.
 - `src/modules/health/` and `src/modules/metrics/`: operational endpoints.
 
 ### Admin frontend (`apps/admin`)
@@ -38,6 +39,7 @@ React + Vite + TypeScript single-page console with:
 - usage/cost report and filters
 - audit log view
 - system health and global rate-limit editing
+- CORS allowed-origins editor (Settings → Allowed websites (CORS))
 
 The admin token is kept in `sessionStorage`; API secrets are only shown after create/rotate.
 

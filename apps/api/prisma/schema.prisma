@@ -244,6 +244,18 @@ model Quota {
 }
 
 // ---------------------------------------------------------------------------
+// Runtime-editable settings (admin panel; e.g. CORS allowed origins)
+// ---------------------------------------------------------------------------
+
+model Setting {
+  id        String   @id @default(cuid())
+  // Stable key, e.g. "cors_origins"; values are validated JSON payloads
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
 // Audit log (admin actions; never contains OTP codes or secrets)
 // ---------------------------------------------------------------------------
 
